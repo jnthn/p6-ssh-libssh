@@ -19,6 +19,20 @@ class SSH::LibSSH {
         $result
     }
 
+    # We use libssh exclusively in non-blocking mode. A single event loop
+    # thread manages all interactions with libssh (that is, we only ever make
+    # calls to the native API on the one thread spawned by the EventLoop
+    # class). Operations are shipped to the event loop via. a channel, and
+    # Promise/Supply are used for conveying results. This is the simplest
+    # possible non-terrible event loop: it uses dopoll so it isn't in a busy
+    # loop, but then it checks for completion of all outstanding operations.
+    # This will be fine for a handful of connections, but will scale pretty
+    # badly if there are dozens/hundreds. For some (the channel) events there
+    # is a callback-based API, which would greatly reduce the number of things
+    # we need to poll. However, it needs filling a struct up with callbacks to
+    # use it; NativeCall couldn't do that at the time of writing, and the
+    # use-case that prompted writing this module only required that it handle
+    # a few concurrent connections. So, this approach was fine enough.
     my class EventLoop {
         has Channel $!todo;
         has Thread $!loop-thread;
