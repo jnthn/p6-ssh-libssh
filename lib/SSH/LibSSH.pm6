@@ -364,7 +364,7 @@ class SSH::LibSSH {
                 my $mode = ~$local-path.IO.mode;
                 my $channel = await self.execute("scp -t $remote-path");
                 react {
-                    my enum State <Initial SentHeader SendingBody>;
+                    my enum State <Initial SentHeader SendingBody BodySent>;
                     my $state = Initial;
 
                     sub check-status-code($data) {
@@ -386,8 +386,12 @@ class SSH::LibSSH {
                                 check-status-code($data);
                                 $state = SendingBody;
                                 whenever $channel.write($to-send) {
-                                    done;
+                                    $state = BodySent;
+                                    whenever $channel.close-stdin() {}
                                 }
+                            }
+                            when BodySent {
+                                done;
                             }
                         }
                     }
