@@ -436,16 +436,17 @@ class SSH::LibSSH {
 
         method close() {
             my $p = Promise.new;
+            my $v = $p.vow;
             get-event-loop().run-on-loop: {
                 with $!channel-handle {
                     error-check('close a channel', ssh_channel_close($_));
                     ssh_channel_free($_);
                 }
                 $!channel-handle = SSHChannel;
-                $p.keep(True);
+                $v.keep(True);
                 CATCH {
                     default {
-                        $p.break($_);
+                        $v.break($_);
                     }
                 }
             }
