@@ -402,6 +402,14 @@ class SSH::LibSSH {
             $p
         }
 
+        method print(Str() $data) {
+            self.write($data.encode('utf-8'));
+        }
+
+        method say(Str() $data) {
+            self.print($data ~ "\n")
+        }
+
         method close-stdin() {
             my $p = Promise.new;
             my $v = $p.vow;
