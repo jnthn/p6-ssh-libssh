@@ -358,6 +358,44 @@ class SSH::LibSSH {
             }
         }
 
+        method scp-upload($local-path, $remote-path --> Promise) {
+            start {
+                my $to-send = slurp $local-path, :bin;
+                my $mode = ~$local-path.IO.mode;
+                my $channel = await self.execute("scp -t $remote-path");
+                react {
+                    my enum State <Initial SentHeader SendingBody>;
+                    my $state = Initial;
+
+                    sub check-status-code($data) {
+                        unless $data.elems == 1 && $data[0] == 0 {
+                            die "Unexpected SCP status $data[0]: " ~
+                                $data.subbuf(1).decode('latin-1');
+                        }
+                    }
+
+                    whenever $channel.stdout(:bin) -> $data {
+                        given $state {
+                            when Initial {
+                                check-status-code($data);
+                                my $header = "C$mode $to-send.elems() \n";
+                                $state = SentHeader;
+                                await $channel.write($header.encode('utf8-c8'));
+                            }
+                            when SentHeader {
+                                check-status-code($data);
+                                $state = SendingBody;
+                                whenever $channel.write($to-send) {
+                                    done;
+                                }
+                            }
+                        }
+                    }
+                }
+                $channel.close;
+            }
+        }
+
         method close() {
             my $p = Promise.new;
             given get-event-loop() -> $loop {
