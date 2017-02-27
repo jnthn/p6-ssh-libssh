@@ -6,7 +6,7 @@ sub MAIN($host, $user, *@command) {
     my $exit-code;
     react {
         unless $*IN.t {
-            whenever $channel.write($*IN.slurp-rest.encode('utf-8')) {
+            whenever $channel.print($*IN.slurp-rest) {
                 $channel.close-stdin;
             }
         }
