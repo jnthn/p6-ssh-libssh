@@ -83,6 +83,9 @@ sub ssh_channel_read_nonblocking(SSHChannel, Buf, uint32, int32) returns int32
     is native(libssh) is export {*}
 sub ssh_channel_is_eof(SSHChannel) returns int32 is native(libssh) is export {*}
 sub ssh_channel_get_exit_status(SSHChannel) returns int32 is native(libssh) is export {*}
+sub ssh_channel_window_size(SSHChannel) returns uint32 is native(libssh) is export {*}
+sub ssh_channel_write(SSHChannel, Blob, uint32) returns int32 is native(libssh) is export {*}
+sub ssh_channel_send_eof(SSHChannel) returns int32 is native(libssh) is export {*}
 
 sub ssh_get_error(SSHSession) returns Str is symbol('ssh_get_error')
     is native(libssh) is export {*}

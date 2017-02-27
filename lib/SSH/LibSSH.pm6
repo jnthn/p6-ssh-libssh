@@ -367,6 +367,56 @@ class SSH::LibSSH {
             $s.Supply # XXX use .schedule-on or so, but check we don't lose sequence
         }
 
+        method write(Blob:D $data --> Promise) {
+            my $p = Promise.new;
+            my $v = $p.vow;
+            given get-event-loop() -> $loop {
+                my $remaining = $data;
+                sub maybe-send-something-now() {
+                    my uint $ws = ssh_channel_window_size($!channel-handle);
+                    my $send = [min] $ws, 0xFFFF, $remaining.elems;
+                    if $send {
+                        my $rv = error-check($!session.session-handle,
+                            ssh_channel_write($!channel-handle, $remaining, $send));
+                        $remaining = $remaining.subbuf($send);
+                        CATCH {
+                            default {
+                                $v.break($_);
+                                return True;
+                            }
+                        }
+                        if $remaining.elems == 0 {
+                            $v.keep(True);
+                            return True;
+                        }
+                    }
+                    return False;
+                }
+
+                unless maybe-send-something-now() {
+                    $loop.add-poller: -> $remove is rw {
+                        $remove = maybe-send-something-now();
+                    }
+                }
+            }
+            $p
+        }
+
+        method close-stdin() {
+            my $p = Promise.new;
+            my $v = $p.vow;
+            given get-event-loop() -> $loop {
+                error-check($!session.session-handle, ssh_channel_send_eof($!channel-handle));
+                $v.keep(True);
+                CATCH {
+                    default {
+                        $v.break($_);
+                    }
+                }
+            }
+            await $p;
+        }
+
         method exit() {
             my $p = Promise.new;
             my $v = $p.vow;
