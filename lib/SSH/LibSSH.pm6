@@ -295,6 +295,69 @@ class SSH::LibSSH {
             }
         }
 
+        # For SCP, the libssh async interface unfortunately does not work.
+        # Thankfully, SCP is a relatively easy protocol, so we can just do
+        # what libssh does to implement it in terms of a reuqest channel.
+
+        method scp-download(Str $remote-path, Str $local-path --> Promise) {
+            start {
+                my $channel = await self.execute("scp -f $remote-path");
+                await $channel.write(Blob.new(0));
+                react {
+                    my enum State <ExpectHeader ExpectBody>;
+                    my $state = ExpectHeader;
+                    my $buffer;
+                    my $bytes-remaining;
+                    my $mode;
+
+                    sub write-to-file(Blob $data) {
+                        state $target-file //= open $local-path, :w, :bin;
+                        $bytes-remaining -= $data.elems;
+                        $target-file.write($bytes-remaining >= 0
+                            ?? $data
+                            !! $data.subbuf(0, $data.elems + $bytes-remaining));
+                        unless $bytes-remaining > 0 {
+                            $target-file.close;
+                            chmod $mode, $local-path;
+                            done;
+                        }
+                    }
+
+                    whenever $channel.stdout(:bin) -> $data {
+                        if $state == ExpectHeader {
+                            my $header;
+                            $buffer = $buffer ?? $buffer ~ $data !! $data;
+                            loop (my int $i = 0; $i < $buffer.elems; $i++) {
+                                if $buffer[$i] == ord("\n") {
+                                    $header = $buffer.subbuf(0, $i);
+                                    $buffer = $buffer.subbuf($i);
+                                    last;
+                                }
+                            }
+                            with $header {
+                                if $header[0] == ord('C') {
+                                    # It's the file.
+                                    my @parts = $header.decode('latin-1').substr(1).split(' ', 3);
+                                    die "Malformed SCP file header" unless @parts == 3;
+                                    $mode = :8(@parts[0]);
+                                    $bytes-remaining = @parts[1].Int;
+                                    await $channel.write(Blob.new(0));
+                                    $state = ExpectBody;
+                                }
+                                else {
+                                    die "Unexpected SCP file header char '$header[0]'";
+                                }
+                            }
+                        }
+                        elsif $state == ExpectBody {
+                            write-to-file($data);
+                        }
+                    }
+                }
+                $channel.close;
+            }
+        }
+
         method close() {
             my $p = Promise.new;
             given get-event-loop() -> $loop {
