@@ -367,6 +367,23 @@ class SSH::LibSSH {
             $s.Supply # XXX use .schedule-on or so, but check we don't lose sequence
         }
 
+        method exit() {
+            my $p = Promise.new;
+            my $v = $p.vow;
+            given get-event-loop() -> $loop {
+                $loop.run-on-loop: {
+                    $loop.add-poller: -> $remove is rw {
+                        my $exit = ssh_channel_get_exit_status($!channel-handle);
+                        if $exit >= 0 {
+                            $remove = True;
+                            $v.keep($exit);
+                        }
+                    }
+                }
+            }
+            $p
+        }
+
         method close() {
             my $p = Promise.new;
             get-event-loop().run-on-loop: {
