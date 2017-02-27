@@ -339,7 +339,7 @@ class SSH::LibSSH {
             self!std-reader(1, |%options)
         }
 
-        method !std-reader($is-stderr, :$scheduler = $*SCHEDULER) {
+        method !std-reader($is-stderr, :$bin, :$enc, :$scheduler = $*SCHEDULER) {
             my Supplier::Preserving $s .= new;
             given get-event-loop() -> $loop {
                 $loop.run-on-loop: {
@@ -349,7 +349,8 @@ class SSH::LibSSH {
                             ssh_channel_read_nonblocking($!channel-handle, $buf, 32768, $is-stderr));
                         if $nread > 0 {
                             $buf .= subbuf(0, $nread);
-                            $s.emit($buf.decode('ascii')); # XXX bin/enc
+                            # TODO Use streaming decoder here
+                            $s.emit($bin ?? $buf !! $buf.decode($enc // 'ascii'));
                         }
                         elsif ssh_channel_is_eof($!channel-handle) {
                             $remove = True;
