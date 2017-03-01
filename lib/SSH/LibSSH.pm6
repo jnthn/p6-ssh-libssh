@@ -380,7 +380,7 @@ class SSH::LibSSH {
                                 check-status-code($data);
                                 my $header = "C$mode $to-send.elems() \n";
                                 $state = SentHeader;
-                                await $channel.write($header.encode('utf8-c8'));
+                                whenever $channel.write($header.encode('utf8-c8')) {}
                             }
                             when SentHeader {
                                 check-status-code($data);
