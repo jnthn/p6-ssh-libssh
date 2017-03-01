@@ -481,7 +481,7 @@ class SSH::LibSSH {
                     my $remaining = $data;
                     sub maybe-send-something-now() {
                         my uint $ws = ssh_channel_window_size($!channel-handle);
-                        my $send = [min] $ws, 0xFFFF, $remaining.elems;
+                        my $send = [min] $ws, 0x1FFFF, $remaining.elems;
                         if $send {
                             my $rv = error-check($!session.session-handle,
                                 ssh_channel_write($!channel-handle, $remaining, $send));
