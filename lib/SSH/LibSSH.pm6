@@ -202,6 +202,7 @@ class SSH::LibSSH {
                         CATCH {
                             default {
                                 $remove = True;
+                                self!teardown-session();
                                 $v.break($_);
                             }
                         }
@@ -209,6 +210,7 @@ class SSH::LibSSH {
                 }
                 CATCH {
                     default {
+                        self!teardown-session();
                         $v.break($_);
                     }
                 }
@@ -220,6 +222,7 @@ class SSH::LibSSH {
                 $v.keep(self);
             }
             else {
+                self!teardown-session();
                 $v.break(X::SSH::LibSSH::Error.new(message => 'Authentication failed'));
             }
         }
@@ -404,11 +407,7 @@ class SSH::LibSSH {
             my $p = Promise.new;
             given get-event-loop() -> $loop {
                 $loop.run-on-loop: {
-                    with $!session-handle {
-                        ssh_disconnect($_);
-                        ssh_free($_);
-                    }
-                    $!session-handle = SSHSession;
+                    self!teardown-session();
                     $p.keep(True);
                     CATCH {
                         default {
@@ -418,6 +417,14 @@ class SSH::LibSSH {
                 }
             }
             await $p;
+        }
+
+        method !teardown-session() {
+            with $!session-handle {
+                ssh_disconnect($_);
+                ssh_free($_);
+            }
+            $!session-handle = SSHSession;
         }
     }
 
