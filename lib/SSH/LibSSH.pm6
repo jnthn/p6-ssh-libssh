@@ -260,7 +260,7 @@ class SSH::LibSSH {
 
             $scheduler.cue: {
                 handler($action);
-                get-event-loop().run-on-event-loop: {
+                get-event-loop().run-on-loop: {
                     given $action.outcome {
                         when HostAuthorizationAction::Accept {
                             self!connect-auth-user($v, $scheduler);
