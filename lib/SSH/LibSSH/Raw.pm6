@@ -58,6 +58,10 @@ sub ssh_options_set_str(SSHSession, int32, Str) returns int32
 sub ssh_connect(SSHSession) returns int32 is native(libssh) is export {*}
 sub ssh_disconnect(SSHSession) is native(libssh) is export {*}
 sub ssh_is_server_known(SSHSession) returns int32 is native(libssh) is export {*}
+sub ssh_write_knownhost(SSHSession) returns int32 is native(libssh) is export {*}
+sub ssh_get_pubkey_hash(SSHSession, CArray[Pointer]) returns int32 is native(libssh) is export {*}
+sub ssh_get_hexa(Pointer, size_t) returns Str is native(libssh) is export {*}
+sub ssh_clean_pubkey_hash(CArray[Pointer]) is native(libssh) is export {*}
 
 my enum SSHAuth is export (
     :SSH_AUTH_SUCCESS(0),

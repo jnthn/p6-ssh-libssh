@@ -107,16 +107,65 @@ class SSH::LibSSH {
         }
     }
 
+    class Session { ... }
     class Channel { ... }
+
+    class HostAuthorizationAction {
+        enum Outcome <Decline Accept AcceptAndSave>;
+
+        has Session $.session is required;
+        has Str $.hash is required;
+        has Outcome $.outcome = Decline;
+
+        method accept-this-time() {
+            $!outcome = Accept;
+        }
+
+        method accept-and-save() {
+            $!outcome = AcceptAndSave;
+        }
+
+        method decline() {
+            $!outcome = Decline;
+        }
+    }
+
     class Session {
         my enum State <Fresh Connected Disconnected>;
         has $!state = Fresh;
         has Str $.host;
         has Int $.port;
         has Str $.user;
+        has &.on-server-unknown;
+        has &.on-server-known-changed;
+        has &.on-server-found-other;
         has SSHSession $.session-handle;
 
-        submethod BUILD(Str :$!host!, Int :$!port = 22, Str :$!user = $*USER.Str) {
+        submethod BUILD(Str :$!host!, Int :$!port = 22, Str :$!user = $*USER.Str,
+                        :&!on-server-unknown = &default-server-unknown,
+                        :&!on-server-known-changed = &default-server-known-changed,
+                        :&!on-server-found-other = &default-server-found-other) {}
+
+        sub default-server-unknown($handler) {
+            say "This server is unknown. It presented the public key hash:";
+            say $handler.hash;
+            given prompt("Do you want to accpet it (yes/once/NO)?") {
+                when /:i ^ y[es] $/ { $handler.accept-and-save() }
+                when /:i ^ n[o] $/ { $handler.accept-this-time() }
+                default { $handler.decline() }
+            }
+        }
+
+        sub default-server-known-changed($handler) {
+            say "The host key for the server has changed, perhaps due to an attack.";
+            say "Disconnecting from the server for security reasons.";
+        }
+
+        sub default-server-found-other($handler) {
+            say "The host key for the server was not found, but a different type of key " ~
+                "exists. This may be due to an attacker trying to confuse your client " ~
+                "into thinking the key does not exist.";
+            say "Disconnecting from the server for security reasons.";
         }
 
         method connect(:$scheduler = $*SCHEDULER --> Promise) {
@@ -171,15 +220,75 @@ class SSH::LibSSH {
         # Performs the server authorization step of connecting.
         method !connect-auth-server($v, $scheduler) {
             given $!session-handle -> $s {
-                my $known = SSHServerKnown(error-check($s, ssh_is_server_known($s)));
-                if $known == SSH_SERVER_KNOWN_OK {
-                    self!connect-auth-user($v, $scheduler);
+                given SSHServerKnown(error-check($s, ssh_is_server_known($s))) {
+                    when SSH_SERVER_KNOWN_OK {
+                        self!connect-auth-user($v, $scheduler);
+                    }
+                    when SSH_SERVER_NOT_KNOWN | SSH_SERVER_FILE_NOT_FOUND {
+                        self!auth-server-problem($v, $scheduler, &!on-server-unknown)
+                    }
+                    when SSH_SERVER_KNOWN_CHANGED {
+                        self!auth-server-problem($v, $scheduler, &!on-server-known-changed)
+                    }
+                    when SSH_SERVER_FOUND_OTHER {
+                        self!auth-server-problem($v, $scheduler, &!on-server-found-other)
+                    }
+                    default {
+                        die "Unknown response from ssh_is_server_known";
+                    }
                 }
-                else {
-                    # TODO Implement something pluggable/extensible here.
-                    $v.break(X::NYI.new(feature => 'Handling unknown servers'));
+                CATCH {
+                    default {
+                        self!teardown-session();
+                        $v.break($_);
+                    }
                 }
             }
+        }
+
+        # Handles cases of server authorization that need intervention.
+        method !auth-server-problem($v, $scheduler, &handler) {
+            my $hash-buf = CArray[Pointer].new();
+            $hash-buf[0] = Pointer;
+            my $hash-len = error-check($!session-handle,
+                ssh_get_pubkey_hash($!session-handle, $hash-buf));
+            my $action = HostAuthorizationAction.new(
+                session => self,
+                hash => ssh_get_hexa($hash-buf[0], $hash-len)
+            );
+            ssh_clean_pubkey_hash($hash-buf);
+
+            $scheduler.cue: {
+                handler($action);
+                get-event-loop().run-on-event-loop: {
+                    given $action.outcome {
+                        when HostAuthorizationAction::Accept {
+                            self!connect-auth-user($v, $scheduler);
+                        }
+                        when HostAuthorizationAction::AcceptAndSave {
+                            error-check($!session-handle,
+                                ssh_write_knownhost($!session-handle));
+                            self!connect-auth-user($v, $scheduler);
+                        }
+                        default {
+                            self!teardown-session();
+                            $v.break('Host authorization failed');
+                        }
+                    }
+                    CATCH {
+                        default {
+                            self!teardown-session();
+                            $v.break($_);
+                        }
+                    }
+                }
+                CATCH {
+                    default {
+                        self!teardown-session();
+                        $v.break($_);
+                    }
+                }
+            };
         }
 
         # Performs the user authorization step of connecting.
