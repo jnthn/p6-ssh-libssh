@@ -11,7 +11,7 @@ class Build is Panda::Builder {
         return unless $*DISTRO.is-win;
 
         my constant $file = "ssh.dll";
-        my constant $hash = "CB601F66CFA8E61BA7B221DE2D6B15BFFFEA5E3FD2896030747E819DE4FAEADD";
+        my constant $hash = "E95FC7DD3F1B12B9A54B4141D4D63FB05455913660FA7EC367C560B9C244C84A";
 
         # to avoid a dependency (and because Digest::SHA is too slow), we do a hacked up powershell hash
         # this should work all the way back to powershell v1
