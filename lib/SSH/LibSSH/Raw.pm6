@@ -1,6 +1,10 @@
 use NativeCall;
 
-my constant libssh = 'libssh.so.4';
+constant libssh = %*ENV<PERL6_LIBSSH_LIB> || (
+    $*DISTRO.is-win
+        ?? %?RESOURCES<ssh.dll>.abspath
+        !! 'libssh.so.4'
+);
 
 my class SSHSession is repr('CPointer') is export {}
 my enum SSHSessionOptions is export <
