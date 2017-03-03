@@ -63,6 +63,7 @@ sub ssh_get_pubkey_hash(SSHSession, CArray[Pointer]) returns int32 is native(lib
 sub ssh_get_hexa(Pointer, size_t) returns Str is native(libssh) is export {*}
 sub ssh_clean_pubkey_hash(CArray[Pointer]) is native(libssh) is export {*}
 
+my class SSHKey is repr('CPointer') is export {}
 my enum SSHAuth is export (
     :SSH_AUTH_SUCCESS(0),
     :SSH_AUTH_DENIED(1),
@@ -73,6 +74,11 @@ my enum SSHAuth is export (
 );
 sub ssh_userauth_publickey_auto(SSHSession, Str, Str) returns int32
     is native(libssh) is export {*}
+sub ssh_pki_import_privkey_file(Str, Str, Pointer, Pointer, CArray[SSHKey])
+    returns int32 is native(libssh) is export {*}
+sub ssh_userauth_publickey(SSHSession, Str, SSHKey) returns int32
+    is native(libssh) is export {*}
+sub ssh_key_free(SSHKey) is native(libssh) is export {*}
 
 my class SSHEvent is repr('CPointer') is export {}
 sub ssh_event_new() returns SSHEvent is native(libssh) is export {*}

@@ -138,6 +138,7 @@ class SSH::LibSSH {
         has Str $.host;
         has Int $.port;
         has Str $.user;
+        has Str $.private-key-file;
         has LogLevel $!log-level;
         has &.on-server-unknown;
         has &.on-server-known-changed;
@@ -145,7 +146,7 @@ class SSH::LibSSH {
         has SSHSession $.session-handle;
 
         submethod BUILD(Str :$!host!, Int :$!port = 22, Str :$!user = $*USER.Str,
-                        LogLevel :$!log-level = None,
+                        Str :$!private-key-file = Str, LogLevel :$!log-level = None,
                         :&!on-server-unknown = &default-server-unknown,
                         :&!on-server-known-changed = &default-server-known-changed,
                         :&!on-server-found-other = &default-server-found-other) {}
@@ -302,35 +303,49 @@ class SSH::LibSSH {
 
         # Performs the user authorization step of connecting.
         method !connect-auth-user($v, $scheduler) {
+            my $key;
+            with $!private-key-file {
+                my $key-out = CArray[SSHKey].new;
+                $key-out[0] = SSHKey;
+                error-check("read private key file $_",
+                    ssh_pki_import_privkey_file($_, Str, Pointer, Pointer, $key-out));
+                $key = $key-out[0];
+            }
+
             given $!session-handle -> $s {
-                my $auth-outcome = SSHAuth(error-check($s,
-                    ssh_userauth_publickey_auto($s, Str, Str)));
+                my &auth-function = $key
+                    ?? { ssh_userauth_publickey($s, Str, $key) }
+                    !! { ssh_userauth_publickey_auto($s, Str, Str) };
+                my $auth-outcome = SSHAuth(error-check($s, auth-function()));
                 if $auth-outcome != SSH_AUTH_AGAIN {
+                    ssh_key_free($key) with $key;
                     self!process-auth-outcome($auth-outcome, $v);
                 }
                 else {
                     # Poll until result available.
                     get-event-loop().add-poller: -> $remove is rw {
-                        my $auth-outcome = SSHAuth(error-check($s,
-                            ssh_userauth_publickey_auto($s, Str, Str)));
+                        my $auth-outcome = SSHAuth(error-check($s, auth-function()));
                         if $auth-outcome != SSH_AUTH_AGAIN {
                             $remove = True;
+                            ssh_key_free($key) with $key;
                             self!process-auth-outcome($auth-outcome, $v);
                         }
                         CATCH {
                             default {
                                 $remove = True;
+                                ssh_key_free($key) with $key;
                                 self!teardown-session();
                                 $v.break($_);
                             }
                         }
                     }
                 }
-                CATCH {
-                    default {
-                        self!teardown-session();
-                        $v.break($_);
-                    }
+            }
+            CATCH {
+                default {
+                    ssh_key_free($key) with $key;
+                    self!teardown-session();
+                    $v.break($_);
                 }
             }
         }
