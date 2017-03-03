@@ -1,7 +1,7 @@
 use SSH::LibSSH::Raw;
 use NativeCall :types;
 
-class X::SSH::LibSSH::Error {
+class X::SSH::LibSSH::Error is Exception {
     has Str $.message;
 }
 
