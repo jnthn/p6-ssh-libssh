@@ -130,18 +130,22 @@ class SSH::LibSSH {
         }
     }
 
+    enum LogLevel <None Warn Info Debug Trace>;
+
     class Session {
         my enum State <Fresh Connected Disconnected>;
         has $!state = Fresh;
         has Str $.host;
         has Int $.port;
         has Str $.user;
+        has LogLevel $!log-level;
         has &.on-server-unknown;
         has &.on-server-known-changed;
         has &.on-server-found-other;
         has SSHSession $.session-handle;
 
         submethod BUILD(Str :$!host!, Int :$!port = 22, Str :$!user = $*USER.Str,
+                        LogLevel :$!log-level = None,
                         :&!on-server-unknown = &default-server-unknown,
                         :&!on-server-known-changed = &default-server-known-changed,
                         :&!on-server-found-other = &default-server-found-other) {}
@@ -181,6 +185,11 @@ class SSH::LibSSH {
                             ssh_options_set_int($s, SSH_OPTIONS_PORT, CArray[int32].new($!port)));
                         error-check($s,
                             ssh_options_set_str($s, SSH_OPTIONS_USER, $!user));
+                        if $!log-level != None {
+                            error-check($s,
+                                ssh_options_set_int($s, SSH_OPTIONS_LOG_VERBOSITY,
+                                    CArray[int32].new($!log-level)));
+                        }
 
                         my $outcome = error-check($s, ssh_connect($s));
                         $loop.add-session($s);
