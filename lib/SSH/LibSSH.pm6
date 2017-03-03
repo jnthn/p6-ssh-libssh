@@ -530,6 +530,7 @@ class SSH::LibSSH {
 
         method !teardown-session() {
             with $!session-handle {
+                get-event-loop().remove-session($!session-handle);
                 ssh_disconnect($_);
                 ssh_free($_);
             }
