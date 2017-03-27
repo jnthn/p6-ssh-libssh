@@ -10,10 +10,10 @@ sub MAIN(Str $host, Str $user, Int :$port = 22, Str :$password, Str :$private-ke
                 $channel.close-stdin;
             }
         }
-        whenever $channel.stdout -> $chars {
+        whenever $channel.stdout(:enc<utf8>) -> $chars {
             $*OUT.print: $chars;
         }
-        whenever $channel.stderr -> $chars {
+        whenever $channel.stderr(:enc<utf8>) -> $chars {
             $*ERR.print: $chars;
         }
         whenever $channel.exit -> $code {
