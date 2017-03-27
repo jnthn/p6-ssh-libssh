@@ -138,6 +138,7 @@ class SSH::LibSSH {
         has Str $.host;
         has Int $.port;
         has Str $.user;
+        has Str $.password;
         has Str $.private-key-file;
         has LogLevel $!log-level;
         has &.on-server-unknown;
@@ -146,7 +147,7 @@ class SSH::LibSSH {
         has SSHSession $.session-handle;
 
         submethod BUILD(Str :$!host!, Int :$!port = 22, Str :$!user = $*USER.Str,
-                        Str :$!private-key-file = Str, LogLevel :$!log-level = None,
+                        Str :$!private-key-file = Str, Str :$!password = Str, LogLevel :$!log-level = None,
                         :&!on-server-unknown = &default-server-unknown,
                         :&!on-server-known-changed = &default-server-known-changed,
                         :&!on-server-found-other = &default-server-found-other) {}
@@ -350,13 +351,50 @@ class SSH::LibSSH {
             }
         }
 
-        method !process-auth-outcome($outcome, $v) {
+        method !process-auth-outcome($outcome, $v, :$method = "key") {
             if $outcome == SSH_AUTH_SUCCESS {
                 $v.keep(self);
             }
             else {
-                self!teardown-session();
-                $v.break(X::SSH::LibSSH::Error.new(message => 'Authentication failed'));
+                if $method eq "key" and defined $.password {
+                    # Public Key authentication failed. We'll try using a password now.
+                    self!connect-auth-user-password($v);
+                } else {
+                    self!teardown-session();
+                    $v.break(X::SSH::LibSSH::Error.new(message => 'Authentication failed'));
+                }
+            }
+        }
+
+        method !connect-auth-user-password($v) {
+            given $!session-handle -> $s {
+                my &auth-function = { ssh_userauth_password($s, Str, $.password) }
+                my $auth-outcome = SSHAuth(error-check($s, auth-function()));
+                if $auth-outcome != SSH_AUTH_AGAIN {
+                    self!process-auth-outcome($auth-outcome, $v, :method<password>);
+                } else {
+                    # Poll until result available.
+                    get-event-loop().add-poller: -> $remove is rw {
+                        my $auth-outcome = SSHAuth(error-check($s, auth-function()));
+                        if $auth-outcome != SSH_AUTH_AGAIN {
+                            $remove = True;
+                            self!process-auth-outcome($auth-outcome, $v, :method<password>);
+                        }
+                        CATCH {
+                            default {
+                                $remove = True;
+                                self!teardown-session();
+                                $v.break($_);
+                            }
+                        }
+                    }
+                }
+            }
+            CATCH {
+                default {
+                    self!teardown-session();
+                    $v.break($_);
+                }
             }
         }
 
