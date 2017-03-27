@@ -138,7 +138,7 @@ class SSH::LibSSH {
         has Str $.host;
         has Int $.port;
         has Str $.user;
-        has Str $.password;
+        has Str $!password;
         has Str $.private-key-file;
         has LogLevel $!log-level;
         has &.on-server-unknown;
@@ -356,7 +356,7 @@ class SSH::LibSSH {
                 $v.keep(self);
             }
             else {
-                if $method eq "key" and defined $.password {
+                if $method eq "key" and defined $!password {
                     # Public Key authentication failed. We'll try using a password now.
                     self!connect-auth-user-password($v);
                 } else {
@@ -368,7 +368,7 @@ class SSH::LibSSH {
 
         method !connect-auth-user-password($v) {
             given $!session-handle -> $s {
-                my &auth-function = { ssh_userauth_password($s, Str, $.password) }
+                my &auth-function = { ssh_userauth_password($s, Str, $!password) }
                 my $auth-outcome = SSHAuth(error-check($s, auth-function()));
                 if $auth-outcome != SSH_AUTH_AGAIN {
                     self!process-auth-outcome($auth-outcome, $v, :method<password>);
