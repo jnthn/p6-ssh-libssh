@@ -79,6 +79,8 @@ sub ssh_pki_import_privkey_file(Str, Str, Pointer, Pointer, CArray[SSHKey])
 sub ssh_userauth_publickey(SSHSession, Str, SSHKey) returns int32
     is native(libssh) is export {*}
 sub ssh_key_free(SSHKey) is native(libssh) is export {*}
+sub ssh_userauth_password(SSHSession, Str, Str) returns int32
+    is native(libssh) is export {*}
 
 my class SSHEvent is repr('CPointer') is export {}
 sub ssh_event_new() returns SSHEvent is native(libssh) is export {*}
