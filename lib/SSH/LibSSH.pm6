@@ -482,7 +482,7 @@ class SSH::LibSSH {
                             ssh_channel_open_forward($channel, $remote-host, $remote-port,
                                 $source-host, $local-port));
                         if $forward == 0 {
-                            self!keep-forward-channel($channel, $v);
+                            $v.keep(self!make-forward-channel($channel));
                         }
                         else {
                             $loop.add-poller: -> $remove is rw {
@@ -491,7 +491,7 @@ class SSH::LibSSH {
                                         $source-host, $local-port));
                                 if $forward == 0 {
                                     $remove = True;
-                                    self!keep-forward-channel($channel, $v);
+                                    $v.keep(self!make-forward-channel($channel));
                                 }
                                 CATCH {
                                     default {
@@ -515,10 +515,8 @@ class SSH::LibSSH {
             $p
         }
 
-        method !keep-forward-channel(SSHChannel $channel, $v --> Nil) {
-            $v.keep(ForwardingChannel.new(
-                channel => Channel.from-raw-handle($channel, self)
-            ));
+        method !make-forward-channel(SSHChannel $channel --> ForwardingChannel) {
+            ForwardingChannel.new(channel => Channel.from-raw-handle($channel, self))
         }
 
         # For SCP, the libssh async interface unfortunately does not work.
