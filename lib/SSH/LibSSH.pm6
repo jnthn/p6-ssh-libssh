@@ -631,8 +631,8 @@ class SSH::LibSSH {
                 $loop.run-on-loop: {
                     $loop.add-poller: -> $remove is rw {
                         my $buf = Buf.allocate(32768);
-                        my $nread = error-check($!session.session-handle,
-                            ssh_channel_read_nonblocking($!channel-handle, $buf, 32768, $is-stderr));
+                        my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
+                            32768, $is-stderr);
                         if $nread > 0 {
                             $buf .= subbuf(0, $nread);
                             # TODO Use streaming decoder here
@@ -642,6 +642,9 @@ class SSH::LibSSH {
                             $remove = True;
                             $s.done();
                             ($is-stderr ?? $!stderr-eof !! $!stdout-eof) = True;
+                        }
+                        else {
+                            error-check($!session.session-handle, $nread);
                         }
                         CATCH {
                             default {
