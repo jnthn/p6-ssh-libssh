@@ -7,7 +7,7 @@ use SSH::LibSSH;
 #   curl -v -H "Host: www.bash.org" http://127.0.0.1:8888/
 
 sub MAIN(Str $host, Str $user, Str $remote-host, Int $remote-port, Int $local-port,
-         Int :$port = 22, Str :$password, Str :$private-key-file, *@command) {
+         Int :$port = 22, Str :$password, Str :$private-key-file) {
     my $session = await SSH::LibSSH.connect(:$host, :$user, :$port, :$private-key-file, :$password);
     react {
         whenever IO::Socket::Async.listen('127.0.0.1', $local-port) -> $connection {
