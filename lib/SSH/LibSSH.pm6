@@ -109,6 +109,7 @@ class SSH::LibSSH {
 
     class Session { ... }
     class Channel { ... }
+    class ForwardingChannel { ... }
 
     class HostAuthorizationAction {
         enum Outcome <Decline Accept AcceptAndSave>;
@@ -469,6 +470,57 @@ class SSH::LibSSH {
             }
         }
 
+        method forward(Str() $remote-host, Int() $remote-port, Str() $source-host,
+                       Int() $local-port  --> Promise) {
+            my $p = Promise.new;
+            my $v = $p.vow;
+            given get-event-loop() -> $loop {
+                $loop.run-on-loop: {
+                    my $channel = ssh_channel_new($!session-handle);
+                    with $channel {
+                        my $forward = error-check($!session-handle,
+                            ssh_channel_open_forward($channel, $remote-host, $remote-port,
+                                $source-host, $local-port));
+                        if $forward == 0 {
+                            self!keep-forward-channel($channel, $v);
+                        }
+                        else {
+                            $loop.add-poller: -> $remove is rw {
+                                my $forward = error-check($!session-handle,
+                                    ssh_channel_open_forward($channel, $remote-host, $remote-port,
+                                        $source-host, $local-port));
+                                if $forward == 0 {
+                                    $remove = True;
+                                    self!keep-forward-channel($channel, $v);
+                                }
+                                CATCH {
+                                    default {
+                                        $remove = True;
+                                        $v.break($_);
+                                    }
+                                }
+                            }
+                        }
+                        CATCH {
+                            default {
+                                $v.break($_);
+                            }
+                        }
+                    }
+                    else {
+                        $v.break(X::SSH::LibSSH::Error.new(message => 'Could not allocate channel'));
+                    }
+                }
+            }
+            $p
+        }
+
+        method !keep-forward-channel(SSHChannel $channel, $v --> Nil) {
+            $v.keep(ForwardingChannel.new(
+                channel => Channel.from-raw-handle($channel, self)
+            ));
+        }
+
         # For SCP, the libssh async interface unfortunately does not work.
         # Thankfully, SCP is a relatively easy protocol, so we can just do
         # what libssh does to implement it in terms of a reuqest channel.
@@ -754,6 +806,15 @@ class SSH::LibSSH {
                 }
             }
             await $p;
+        }
+    }
+
+    # Wraps around Channel and provides an API more relevant to forwarding.
+    class ForwardingChannel {
+        has Channel $.channel handles <write print say close>;
+
+        method Supply(*%options) {
+            $!channel.stdout(|%options)
         }
     }
 
