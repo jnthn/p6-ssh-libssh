@@ -104,6 +104,10 @@ sub ssh_channel_write(SSHChannel, Blob, uint32) returns int32 is native(libssh) 
 sub ssh_channel_send_eof(SSHChannel) returns int32 is native(libssh) is export {*}
 sub ssh_channel_open_forward(SSHChannel, Str, int32, Str, int32) returns int32
     is native(libssh) is export {*}
+sub ssh_channel_listen_forward(SSHSession, Str, int32, CArray[int32]) returns int32
+    is native(libssh) is symbol('ssh_forward_listen') is export {*}
+sub ssh_channel_accept_forward(SSHSession, int32, CArray[int32]) returns SSHChannel
+    is native(libssh) is export {*}
 
 sub ssh_get_error(SSHSession) returns Str is symbol('ssh_get_error')
     is native(libssh) is export {*}

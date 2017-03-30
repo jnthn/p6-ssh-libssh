@@ -39,6 +39,7 @@ class SSH::LibSSH {
         has SSHEvent $!loop;
         has int $!active-sessions;
         has @!pollers;
+        has Hash %!session-forward-port-map{SSHSession};
 
         submethod BUILD() {
             $!todo = Channel.new;
@@ -82,12 +83,37 @@ class SSH::LibSSH {
             self!assert-loop-thread();
             error-check('remove session from event loop',
                 ssh_event_remove_session($!loop, $session));
+            %!session-forward-port-map{$session}:delete;
             $!active-sessions--;
         }
 
         method add-poller(&poller --> Nil) {
             self!assert-loop-thread();
             @!pollers.push: &poller;
+        }
+
+        method add-forward-port-callback(SSHSession $session, Int $port, &callback --> Nil) {
+            self!assert-loop-thread();
+            unless %!session-forward-port-map{$session}:exists {
+                # We aren't listening for incoming forward requests yet; add
+                # a poller to do so. We only need one per session.
+                self.add-poller: -> $remove is rw {
+                    if %!session-forward-port-map{$session}:exists {
+                        my $port-num = CArray[int32].new(0);
+                        my $channel = ssh_channel_accept_forward($session, 0, $port-num);
+                        with $channel {
+                            with %!session-forward-port-map{$session}{$port-num[0]} {
+                                .($channel);
+                            }
+                        }
+                    }
+                    else {
+                        $remove = True;
+                    }
+                }
+                %!session-forward-port-map{$session} = {};
+            }
+            %!session-forward-port-map{$session}{$port} = &callback;
         }
 
         method !assert-loop-thread() {
@@ -513,6 +539,49 @@ class SSH::LibSSH {
                 }
             }
             $p
+        }
+
+        method reverse-forward(Int() $remote-port, Cool $address-to-bind? --> Supply) {
+            my Supplier::Preserving $connections .= new;
+            given get-event-loop() -> $loop {
+                $loop.run-on-loop: {
+                    my $bind = $address-to-bind.defined ?? $address-to-bind.Str !! Str;
+                    my &callback = -> SSHChannel $channel {
+                        $connections.emit(self!make-forward-channel($channel));
+                    }
+                    my $result = error-check($!session-handle,
+                        ssh_channel_listen_forward($!session-handle, $bind, $remote-port,
+                            CArray[int32]));
+                    if $result == 0 {
+                        $loop.add-forward-port-callback($!session-handle,
+                            $remote-port, &callback);
+                    }
+                    else {
+                        $loop.add-poller: -> $remove is rw {
+                            my $result = error-check($!session-handle,
+                                ssh_channel_listen_forward($!session-handle, $bind, $remote-port,
+                                    CArray[int32]));
+                            if $result == 0 {
+                                $remove = True;
+                                $loop.add-forward-port-callback($!session-handle,
+                                    $remote-port, &callback);
+                            }
+                            CATCH {
+                                default {
+                                    $remove = True;
+                                    $connections.quit($_);
+                                }
+                            }
+                        }
+                    }
+                    CATCH {
+                        default {
+                            $connections.quit($_);
+                        }
+                    }
+                }
+            }
+            $connections.Supply
         }
 
         method !make-forward-channel(SSHChannel $channel --> ForwardingChannel) {
