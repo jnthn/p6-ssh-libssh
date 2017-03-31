@@ -39,6 +39,7 @@ class SSH::LibSSH {
         has SSHEvent $!loop;
         has int $!active-sessions;
         has @!pollers;
+        has Hash %!session-forward-port-map{SSHSession};
 
         submethod BUILD() {
             $!todo = Channel.new;
@@ -82,12 +83,37 @@ class SSH::LibSSH {
             self!assert-loop-thread();
             error-check('remove session from event loop',
                 ssh_event_remove_session($!loop, $session));
+            %!session-forward-port-map{$session}:delete;
             $!active-sessions--;
         }
 
         method add-poller(&poller --> Nil) {
             self!assert-loop-thread();
             @!pollers.push: &poller;
+        }
+
+        method add-forward-port-callback(SSHSession $session, Int $port, &callback --> Nil) {
+            self!assert-loop-thread();
+            unless %!session-forward-port-map{$session}:exists {
+                # We aren't listening for incoming forward requests yet; add
+                # a poller to do so. We only need one per session.
+                self.add-poller: -> $remove is rw {
+                    if %!session-forward-port-map{$session}:exists {
+                        my $port-num = CArray[int32].new(0);
+                        my $channel = ssh_channel_accept_forward($session, 0, $port-num);
+                        with $channel {
+                            with %!session-forward-port-map{$session}{$port-num[0]} {
+                                .($channel);
+                            }
+                        }
+                    }
+                    else {
+                        $remove = True;
+                    }
+                }
+                %!session-forward-port-map{$session} = {};
+            }
+            %!session-forward-port-map{$session}{$port} = &callback;
         }
 
         method !assert-loop-thread() {
@@ -109,6 +135,7 @@ class SSH::LibSSH {
 
     class Session { ... }
     class Channel { ... }
+    class ForwardingChannel { ... }
 
     class HostAuthorizationAction {
         enum Outcome <Decline Accept AcceptAndSave>;
@@ -469,6 +496,98 @@ class SSH::LibSSH {
             }
         }
 
+        method forward(Str() $remote-host, Int() $remote-port, Str() $source-host,
+                       Int() $local-port  --> Promise) {
+            my $p = Promise.new;
+            my $v = $p.vow;
+            given get-event-loop() -> $loop {
+                $loop.run-on-loop: {
+                    my $channel = ssh_channel_new($!session-handle);
+                    with $channel {
+                        my $forward = error-check($!session-handle,
+                            ssh_channel_open_forward($channel, $remote-host, $remote-port,
+                                $source-host, $local-port));
+                        if $forward == 0 {
+                            $v.keep(self!make-forward-channel($channel));
+                        }
+                        else {
+                            $loop.add-poller: -> $remove is rw {
+                                my $forward = error-check($!session-handle,
+                                    ssh_channel_open_forward($channel, $remote-host, $remote-port,
+                                        $source-host, $local-port));
+                                if $forward == 0 {
+                                    $remove = True;
+                                    $v.keep(self!make-forward-channel($channel));
+                                }
+                                CATCH {
+                                    default {
+                                        $remove = True;
+                                        $v.break($_);
+                                    }
+                                }
+                            }
+                        }
+                        CATCH {
+                            default {
+                                $v.break($_);
+                            }
+                        }
+                    }
+                    else {
+                        $v.break(X::SSH::LibSSH::Error.new(message => 'Could not allocate channel'));
+                    }
+                }
+            }
+            $p
+        }
+
+        method reverse-forward(Int() $remote-port, Cool $address-to-bind? --> Supply) {
+            my Supplier::Preserving $connections .= new;
+            given get-event-loop() -> $loop {
+                $loop.run-on-loop: {
+                    my $bind = $address-to-bind.defined ?? $address-to-bind.Str !! Str;
+                    my &callback = -> SSHChannel $channel {
+                        $connections.emit(self!make-forward-channel($channel));
+                    }
+                    my $result = error-check($!session-handle,
+                        ssh_channel_listen_forward($!session-handle, $bind, $remote-port,
+                            CArray[int32]));
+                    if $result == 0 {
+                        $loop.add-forward-port-callback($!session-handle,
+                            $remote-port, &callback);
+                    }
+                    else {
+                        $loop.add-poller: -> $remove is rw {
+                            my $result = error-check($!session-handle,
+                                ssh_channel_listen_forward($!session-handle, $bind, $remote-port,
+                                    CArray[int32]));
+                            if $result == 0 {
+                                $remove = True;
+                                $loop.add-forward-port-callback($!session-handle,
+                                    $remote-port, &callback);
+                            }
+                            CATCH {
+                                default {
+                                    $remove = True;
+                                    $connections.quit($_);
+                                }
+                            }
+                        }
+                    }
+                    CATCH {
+                        default {
+                            $connections.quit($_);
+                        }
+                    }
+                }
+            }
+            $connections.Supply
+        }
+
+        method !make-forward-channel(SSHChannel $channel --> ForwardingChannel) {
+            ForwardingChannel.new(channel => Channel.from-raw-handle($channel, self))
+        }
+
         # For SCP, the libssh async interface unfortunately does not work.
         # Thankfully, SCP is a relatively easy protocol, so we can just do
         # what libssh does to implement it in terms of a reuqest channel.
@@ -631,8 +750,8 @@ class SSH::LibSSH {
                 $loop.run-on-loop: {
                     $loop.add-poller: -> $remove is rw {
                         my $buf = Buf.allocate(32768);
-                        my $nread = error-check($!session.session-handle,
-                            ssh_channel_read_nonblocking($!channel-handle, $buf, 32768, $is-stderr));
+                        my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
+                            32768, $is-stderr);
                         if $nread > 0 {
                             $buf .= subbuf(0, $nread);
                             # TODO Use streaming decoder here
@@ -642,6 +761,9 @@ class SSH::LibSSH {
                             $remove = True;
                             $s.done();
                             ($is-stderr ?? $!stderr-eof !! $!stdout-eof) = True;
+                        }
+                        else {
+                            error-check($!session.session-handle, $nread);
                         }
                         CATCH {
                             default {
@@ -751,6 +873,15 @@ class SSH::LibSSH {
                 }
             }
             await $p;
+        }
+    }
+
+    # Wraps around Channel and provides an API more relevant to forwarding.
+    class ForwardingChannel {
+        has Channel $.channel handles <write print say close>;
+
+        method Supply(*%options) {
+            $!channel.stdout(|%options)
         }
     }
 
