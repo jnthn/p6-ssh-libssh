@@ -24,10 +24,12 @@ sub load-windows-dependencies(--> Nil) {
     # We try to call a non-existing symbol in the libraries; this does
     # enough to load them, though of course the call will fail, thus the
     # `try`.
-    sub load-msvcr110() is native(%?RESOURCES<msvcr110.dll>.abspath) {*}
-    sub load-libeay32() is native(%?RESOURCES<libeay32.dll>.abspath) {*}
+    sub load-msvcr110() is native({ %?RESOURCES<msvcr110.dll>.abspath }) {*}
+    sub load-libeay32() is native({ %?RESOURCES<libeay32.dll>.abspath }) {*}
     try load-msvcr110();
+    say $! if %*ENV<P6_SSH_DEBUG_LOAD>;
     try load-libeay32();
+    say $! if %*ENV<P6_SSH_DEBUG_LOAD>;
 }
 
 my class SSHSession is repr('CPointer') is export {}
