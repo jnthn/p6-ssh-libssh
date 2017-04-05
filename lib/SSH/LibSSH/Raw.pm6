@@ -1,35 +1,39 @@
 use NativeCall;
 
-my $deps-lock = Lock.new;
-my $loaded-deps = False;
+my $windows-dep-lock = Lock.new;
+my $windows-dep-path;
 sub libssh() {
     if %*ENV<PERL6_LIBSSH_LIB> -> $env {
-        $env;
+        $env
     }
     elsif $*DISTRO.is-win {
-        # On Windows, we need to force loading of the dependencies first.
-        $deps-lock.protect: {
-            unless $loaded-deps {
+        $windows-dep-lock.protect: {
+            without $windows-dep-path {
                 load-windows-dependencies();
-                $loaded-deps = True;
+                $windows-dep-path = extract-windows-library('ssh.dll');
             }
         }
-        %?RESOURCES<ssh.dll>.abspath
+        $windows-dep-path
     }
     else {
         'libssh.so.4'
     }
 }
+sub extract-windows-library($lib) {
+    my $dest = "$*TMPDIR\\$lib";
+    try %?RESOURCES{$lib}.IO.copy($dest);
+    $dest
+}
 sub load-windows-dependencies(--> Nil) {
     # We try to call a non-existing symbol in the libraries; this does
     # enough to load them, though of course the call will fail, thus the
     # `try`.
-    sub load-msvcr110() is native({ %?RESOURCES<msvcr110.dll>.abspath }) {*}
-    sub load-libeay32() is native({ %?RESOURCES<libeay32.dll>.abspath }) {*}
+    sub msvcr110() { extract-windows-library('msvcr110.dll') }
+    sub libeay32() { extract-windows-library('libeay32.dll') }
+    sub load-msvcr110() is native(&msvcr110) {*}
+    sub load-libeay32() is native(&libeay32) {*}
     try load-msvcr110();
-    say $! if %*ENV<P6_SSH_DEBUG_LOAD>;
     try load-libeay32();
-    say $! if %*ENV<P6_SSH_DEBUG_LOAD>;
 }
 
 my class SSHSession is repr('CPointer') is export {}
