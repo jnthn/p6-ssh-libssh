@@ -1,6 +1,28 @@
 use SSH::LibSSH::Raw;
 use NativeCall :types;
 
+# This streaming decoder will be replaced with some Perl 6 streaming encoding
+# object once that exists.
+my class StreamingDecoder is repr('Decoder') {
+    use nqp;
+
+    method new(str $encoding) {
+        nqp::decoderconfigure(nqp::create(self), $encoding, nqp::hash())
+    }
+
+    method add-bytes(Blob:D $bytes --> Nil) {
+        nqp::decoderaddbytes(self, nqp::decont($bytes));
+    }
+
+    method consume-available-chars() returns Str {
+        nqp::decodertakeavailablechars(self)
+    }
+
+    method consume-all-chars() returns Str {
+        nqp::decodertakeallchars(self)
+    }
+}
+
 class X::SSH::LibSSH::Error is Exception {
     has Str $.message;
 }
@@ -748,17 +770,29 @@ class SSH::LibSSH {
             my Supplier::Preserving $s .= new;
             given get-event-loop() -> $loop {
                 $loop.run-on-loop: {
+                    my $decoder = $bin
+                        ?? Nil
+                        !! StreamingDecoder.new(Rakudo::Internals.NORMALIZE_ENCODING(
+                                $enc // 'utf-8'));
                     $loop.add-poller: -> $remove is rw {
                         my $buf = Buf.allocate(32768);
                         my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
                             32768, $is-stderr);
                         if $nread > 0 {
                             $buf .= subbuf(0, $nread);
-                            # TODO Use streaming decoder here
-                            $s.emit($bin ?? $buf !! $buf.decode($enc // 'ascii'));
+                            if $bin {
+                                $s.emit($buf);
+                            }
+                            else {
+                                $decoder.add-bytes($buf);
+                                $s.emit($decoder.consume-available-chars());
+                            }
                         }
                         elsif ssh_channel_is_eof($!channel-handle) {
                             $remove = True;
+                            unless $bin {
+                                $s.emit($decoder.consume-all-chars());
+                            }
                             $s.done();
                             ($is-stderr ?? $!stderr-eof !! $!stdout-eof) = True;
                         }
