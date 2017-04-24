@@ -930,4 +930,26 @@ class SSH::LibSSH {
     method connect(Str :$host!, *%options --> Promise) {
         Session.new(:$host, |%options).connect
     }
+
+    class LogEntry {
+        has LogLevel $.level;
+        has Str $.function;
+        has Str $.message;
+    }
+
+    my Supplier $logs;
+    my Lock $logs-lock .= new;
+    method logs(--> Supply) {
+        $logs-lock.protect: {
+            without $logs {
+                $logs = Supplier.new;
+                error-check('set logging callback', ssh_set_log_callback(
+                    -> int32 $level-int, Str $function, Str $message, Pointer $ {
+                        my $level = LogLevel($level-int);
+                        $logs.emit(LogEntry.new(:$level, :$function, :$message));
+                    }));
+            }
+            $logs.Supply
+        }
+    }
 }
