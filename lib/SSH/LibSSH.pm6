@@ -1,5 +1,6 @@
-use SSH::LibSSH::Raw;
+use Concurrent::Progress;
 use NativeCall :types;
+use SSH::LibSSH::Raw;
 
 # This streaming decoder will be replaced with some Perl 6 streaming encoding
 # object once that exists.
@@ -827,12 +828,13 @@ class SSH::LibSSH {
             }
         }
 
-        method write(Blob:D $data --> Promise) {
+        method write(Blob:D $data, Concurrent::Progress :$progress --> Promise) {
             my $p = Promise.new;
             my $v = $p.vow;
             given get-event-loop() -> $loop {
                 $loop.run-on-loop: {
                     my int $left-to-send = $data.elems;
+                    $progress.set-target($left-to-send);
                     sub maybe-send-something-now() {
                         my uint $ws = ssh_channel_window_size($!channel-handle);
                         my $send = [min] $ws, 0xFFFFF, $left-to-send;
@@ -841,6 +843,7 @@ class SSH::LibSSH {
                             my $rv = error-check($!session.session-handle,
                                 ssh_channel_write($!channel-handle, $send-buf, $send));
                             $left-to-send -= $send;
+                            $progress.add($send);
                             CATCH {
                                 default {
                                     $v.break($_);
@@ -865,12 +868,12 @@ class SSH::LibSSH {
             $p
         }
 
-        method print(Str() $data) {
-            self.write($data.encode('utf-8'));
+        method print(Str() $data, Concurrent::Progress :$progress) {
+            self.write($data.encode('utf-8'), :$progress);
         }
 
-        method say(Str() $data) {
-            self.print($data ~ "\n")
+        method say(Str() $data, Concurrent::Progress :$progress) {
+            self.print($data ~ "\n", :$progress)
         }
 
         method close-stdin() {
