@@ -681,7 +681,7 @@ class SSH::LibSSH {
             }
         }
 
-        method scp-upload($local-path, $remote-path --> Promise) {
+        method scp-upload($local-path, $remote-path, Concurrent::Progress :$progress --> Promise) {
             start {
                 my $to-send = slurp $local-path, :bin;
                 my $mode = ~$local-path.IO.mode;
@@ -708,7 +708,7 @@ class SSH::LibSSH {
                             when SentHeader {
                                 check-status-code($data);
                                 $state = SendingBody;
-                                whenever $channel.write($to-send) {
+                                whenever $channel.write($to-send, :$progress) {
                                     $state = BodySent;
                                     whenever $channel.close-stdin() {}
                                 }
