@@ -622,7 +622,8 @@ class SSH::LibSSH {
         # Thankfully, SCP is a relatively easy protocol, so we can just do
         # what libssh does to implement it in terms of a reuqest channel.
 
-        method scp-download(Str $remote-path, Str $local-path --> Promise) {
+        method scp-download(Str $remote-path, Str $local-path,
+                            Concurrent::Progress :$progress --> Promise) {
             start {
                 my $channel = await self.execute("scp -f $remote-path");
                 await $channel.write(Blob.new(0));
@@ -639,6 +640,9 @@ class SSH::LibSSH {
                         $target-file.write($bytes-remaining >= 0
                             ?? $data
                             !! $data.subbuf(0, $data.elems + $bytes-remaining));
+                        $progress.add($bytes-remaining >= 0
+                            ?? $data.elems
+                            !! $data.elems + $bytes-remaining);
                         unless $bytes-remaining > 0 {
                             $target-file.close;
                             chmod $mode, $local-path;
@@ -664,6 +668,7 @@ class SSH::LibSSH {
                                     die "Malformed SCP file header" unless @parts == 3;
                                     $mode = :8(@parts[0]);
                                     $bytes-remaining = @parts[1].Int;
+                                    $progress.set-target($bytes-remaining);
                                     await $channel.write(Blob.new(0));
                                     $state = ExpectBody;
                                 }
