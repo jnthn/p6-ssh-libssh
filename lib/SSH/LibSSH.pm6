@@ -795,6 +795,15 @@ class SSH::LibSSH {
                         !! StreamingDecoder.new(Rakudo::Internals.NORMALIZE_ENCODING(
                                 $enc // 'utf-8'));
                     $loop.add-poller: -> $remove is rw {
+                        if ssh_channel_is_eof($!channel-handle) {
+                            $remove = True;
+                            unless $bin {
+                                $s.emit($decoder.consume-all-chars());
+                            }
+                            $s.done();
+                            return;
+                        }
+
                         my $buf = Buf.allocate(32768);
                         my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
                             32768, $is-stderr);
@@ -808,16 +817,10 @@ class SSH::LibSSH {
                                 $s.emit($decoder.consume-available-chars());
                             }
                         }
-                        elsif ssh_channel_is_eof($!channel-handle) {
-                            $remove = True;
-                            unless $bin {
-                                $s.emit($decoder.consume-all-chars());
-                            }
-                            $s.done();
-                        }
                         else {
                             error-check($!session.session-handle, $nread);
                         }
+
                         CATCH {
                             default {
                                 $remove = True;
