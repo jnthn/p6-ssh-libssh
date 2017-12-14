@@ -801,30 +801,29 @@ class SSH::LibSSH {
                                 $s.emit($decoder.consume-all-chars());
                             }
                             $s.done();
-                            return;
-                        }
-
-                        my $buf = Buf.allocate(32768);
-                        my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
-                            32768, $is-stderr);
-                        if $nread > 0 {
-                            $buf .= subbuf(0, $nread);
-                            if $bin {
-                                $s.emit($buf);
+                        } else {
+                            my $buf = Buf.allocate(32768);
+                            my $nread = ssh_channel_read_nonblocking($!channel-handle, $buf,
+                                32768, $is-stderr);
+                            if $nread > 0 {
+                                $buf .= subbuf(0, $nread);
+                                if $bin {
+                                    $s.emit($buf);
+                                }
+                                else {
+                                    $decoder.add-bytes($buf);
+                                    $s.emit($decoder.consume-available-chars());
+                                }
                             }
                             else {
-                                $decoder.add-bytes($buf);
-                                $s.emit($decoder.consume-available-chars());
+                                error-check($!session.session-handle, $nread);
                             }
-                        }
-                        else {
-                            error-check($!session.session-handle, $nread);
-                        }
 
-                        CATCH {
-                            default {
-                                $remove = True;
-                                $s.quit($_);
+                            CATCH {
+                                default {
+                                    $remove = True;
+                                    $s.quit($_);
+                                }
                             }
                         }
                     }
