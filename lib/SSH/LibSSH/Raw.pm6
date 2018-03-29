@@ -132,8 +132,13 @@ my class SSHChannel is repr('CPointer') is export {}
 sub ssh_channel_new(SSHSession) returns SSHChannel is native(&libssh) is export {*}
 sub ssh_channel_free(SSHChannel) is native(&libssh) is export {*}
 sub ssh_channel_open_session(SSHChannel) returns int32 is native(&libssh) is export {*}
+sub ssh_channel_is_open(SSHChannel) returns int32 is native(&libssh) is export {*}
 sub ssh_channel_close(SSHChannel) returns int32 is native(&libssh) is export {*}
 sub ssh_channel_request_exec(SSHChannel, Str) returns int32 is native(&libssh) is export {*}
+sub ssh_channel_request_pty(SSHChannel) returns int32 is native(&libssh) is export {*}
+sub ssh_channel_request_pty_size(SSHChannel, Str, int32, int32) returns int32 is native(&libssh) is export {*}
+sub ssh_channel_change_pty_size(SSHChannel, int32, int32) returns int32 is native(&libssh) is export {*}
+sub ssh_channel_request_shell(SSHChannel) returns int32 is native(&libssh) is export {*}
 sub ssh_channel_read_nonblocking(SSHChannel, Buf, uint32, int32) returns int32
     is native(&libssh) is export {*}
 sub ssh_channel_is_eof(SSHChannel) returns int32 is native(&libssh) is export {*}
