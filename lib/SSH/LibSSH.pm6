@@ -29,17 +29,19 @@ class X::SSH::LibSSH::Error is Exception {
 }
 
 class SSH::LibSSH {
-    multi sub error-check($what, $result) {
-        if $result == -1 {
+    multi sub error-check($what, Int $result) returns int32 {
+        my int32 $res = $result;
+        if $res == SSH_ERROR {
             die X::SSH::LibSSH::Error.new(message => "Failed to $what");
         }
-        $result
+        $res
     }
-    multi sub error-check(SSHSession $s, $result) {
-        if $result == -1 {
+    multi sub error-check(SSHSession $s, Int $result) returns int32 {
+        my int32 $res = $result;
+        if $res == SSH_ERROR {
             die X::SSH::LibSSH::Error.new(message => ssh_get_error($s));
         }
-        $result
+        $res
     }
 
     # We use libssh exclusively in non-blocking mode. A single event loop

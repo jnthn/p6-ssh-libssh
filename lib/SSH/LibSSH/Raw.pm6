@@ -36,6 +36,12 @@ sub load-windows-dependencies(--> Nil) {
     try load-libeay32();
 }
 
+# Error return codes
+constant SSH_OK     is export = 0;     # /* No error */
+constant SSH_ERROR  is export = -1;    # /* Error of some kind */
+constant SSH_AGAIN  is export = -2;    # /* The nonblocking call must be repeated */
+constant SSH_EOF    is export = -127;  # /* We have already a eof */
+
 my class SSHSession is repr('CPointer') is export {}
 my enum SSHSessionOptions is export <
     SSH_OPTIONS_HOST
