@@ -973,7 +973,7 @@ class SSH::LibSSH {
             given get-event-loop() -> $loop {
                 $loop.run-on-loop: {
                     $loop.add-poller: -> $remove is rw {
-                        if $!stdout-eof && $!stderr-eof {
+                        if $!stdout-eof || $!stderr-eof {
                             my $exit = ssh_channel_get_exit_status($!channel-handle);
                             if $exit >= 0 {
                                 $remove = True;
