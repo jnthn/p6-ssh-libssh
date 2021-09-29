@@ -248,12 +248,8 @@ class SSH::LibSSH {
                                 ssh_options_set_int($s, SSH_OPTIONS_LOG_VERBOSITY,
                                     CArray[int32].new($!log-level)));
                         }
-                        with $!timeout {
-                            error-check($s,
-                                ssh_options_set_int($s, SSH_OPTIONS_TIMEOUT,
-                                    CArray[int32].new($!timeout)));
-                        }
 
+                        my $start-time = now;
                         my $outcome = error-check($s, ssh_connect($s));
                         $loop.add-session($s);
                         if $outcome == 0 {
@@ -266,6 +262,11 @@ class SSH::LibSSH {
                                 if error-check($s, ssh_connect($s)) == 0 {
                                     $remove = True;
                                     self!connect-auth-server($v, $scheduler);
+                                }
+                                elsif now - $start-time > $!timeout {
+                                    $remove = True;
+                                    self!teardown-session();
+                                    $v.break(X::SSH::LibSSH::Error.new(message => 'Connection timed out'));
                                 }
                                 CATCH {
                                     default {
@@ -344,7 +345,7 @@ class SSH::LibSSH {
                         }
                         default {
                             self!teardown-session();
-                            $v.break('Host authorization failed');
+                            $v.break(X::SSH::LibSSH::Error.new(message => 'Host authorization failed'));
                         }
                     }
                     CATCH {
